@@ -22,9 +22,6 @@ import requests
 HISTORY_FILE = "data/transactions.json"
 BLOCKED_FILE = "data/blocked.json"
 
-# ── Bancos marcados como alto risco ─────────────────────────────────────────
-FLAGGED_BANKS = {}
-
 # ── Modelo ML ────────────────────────────────────────────────────────────────
 _model = None
 _scaler = None
@@ -45,7 +42,16 @@ _blocked_entities = {"email": {}, "cpf": {}, "ip": {}}
 _blocked_combos: list = []
 
 # ── Países permitidos (allowlist; vazio = todos liberados) ────────────────────
-_allowed_countries: set = {"brazil", "brasil"}
+_allowed_countries: set = {"brazil"}
+
+# ── Bancos emissores suspeitos ────────────────────────────────────────────────
+_flagged_banks: dict = {}
+
+# ── HandyAPI key para lookup de BIN ──────────────────────────────────────────
+HANDY_API_KEY: str = os.getenv("HANDY_API_KEY", "")
+
+# ── Cache BIN ────────────────────────────────────────────────────────────────
+_bin_cache: dict = {}
 
 # ── Cache de geolocalização de IP ────────────────────────────────────────────
 _ip_geo_cache = {}
@@ -89,6 +95,9 @@ def _load_persisted_data():
                 if "allowed_countries" in loaded:
                     _allowed_countries.clear()
                     _allowed_countries.update(c.lower() for c in loaded["allowed_countries"])
+                if "flagged_banks" in loaded:
+                    _flagged_banks.clear()
+                    _flagged_banks.update(loaded["flagged_banks"])
             total = sum(len(v) for v in _blocked_entities.values())
             print(f"[Agmete] {total} entidade(s), {len(_blocked_combos)} combo(s) carregados")
         except Exception:
@@ -111,6 +120,7 @@ def _save_blocked():
             data = dict(_blocked_entities)
             data["combos"] = _blocked_combos
             data["allowed_countries"] = sorted(_allowed_countries)
+            data["flagged_banks"] = _flagged_banks
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[Agmete] Erro ao salvar bloqueados: {e}")
@@ -230,25 +240,69 @@ def remove_allowed_country(country: str) -> bool:
     return False
 
 
-# ── Bancos suspeitos ─────────────────────────────────────────────────────────
-def add_flagged_bank(bank_name: str, risk_level: str = "alto", reason: str = ""):
-    FLAGGED_BANKS[bank_name.lower().strip()] = {
+# ── Bancos emissores suspeitos ────────────────────────────────────────────────
+def add_flagged_bank(bank_name: str, risk_level: str = "medio", reason: str = ""):
+    key = bank_name.upper().strip()
+    _flagged_banks[key] = {
         "risk_level": risk_level,
         "reason": reason,
-        "added_at": datetime.now().isoformat(),
+        "flagged_at": datetime.now().isoformat(),
     }
+    _save_blocked()
 
 
-def remove_flagged_bank(bank_name: str):
-    key = bank_name.lower().strip()
-    if key in FLAGGED_BANKS:
-        del FLAGGED_BANKS[key]
+def remove_flagged_bank(bank_name: str) -> bool:
+    key = bank_name.upper().strip()
+    if key in _flagged_banks:
+        del _flagged_banks[key]
+        _save_blocked()
         return True
     return False
 
 
-def get_flagged_banks():
-    return dict(FLAGGED_BANKS)
+def get_flagged_banks() -> dict:
+    return dict(_flagged_banks)
+
+
+# ── BIN Lookup (HandyAPI) ─────────────────────────────────────────────────────
+def lookup_bin(card_number: str) -> dict:
+    """Consulta o banco emissor pelo BIN (primeiros 6-8 dígitos) via HandyAPI."""
+    digits = re.sub(r"\D", "", card_number)
+    if len(digits) < 6:
+        return {"success": False, "error": "Número de cartão inválido"}
+
+    bin_code = digits[:8] if len(digits) >= 8 else digits[:6]
+
+    if bin_code in _bin_cache:
+        return _bin_cache[bin_code]
+
+    if not HANDY_API_KEY:
+        return {"success": False, "error": "HANDY_API_KEY não configurada"}
+
+    try:
+        resp = requests.get(
+            f"https://data.handyapi.com/bin/{bin_code}",
+            headers={"x-api-key": HANDY_API_KEY},
+            timeout=5,
+        )
+        data = resp.json()
+        if data.get("Status") == "SUCCESS":
+            result = {
+                "success": True,
+                "bin": bin_code,
+                "scheme": data.get("Scheme", ""),
+                "type": data.get("Type", ""),
+                "issuer": data.get("Issuer", ""),
+                "card_tier": data.get("CardTier", ""),
+                "country": data.get("Country", {}).get("Name", ""),
+                "luhn": data.get("Luhn", False),
+            }
+        else:
+            result = {"success": False, "error": data.get("Status", "Erro desconhecido")}
+        _bin_cache[bin_code] = result
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ── Transações pendentes ────────────────────────────────────────────────────
@@ -537,7 +591,8 @@ def analyze_transaction(data: dict) -> dict:
     state = data.get("state", "")
     bank_name = data.get("bank_name", "")
     purchase_hour = data.get("purchase_hour", datetime.now().hour)
-    card_last4 = data.get("card_last4", "")
+    card_number = re.sub(r"\D", "", data.get("card_number", ""))
+    card_last4 = data.get("card_last4", "") or (card_number[-4:] if len(card_number) >= 4 else "")
     card_expiry = data.get("card_expiry", "")
 
     # ── 0. Verificar bloqueios ───────────────────────────────────────────
@@ -659,29 +714,36 @@ def analyze_transaction(data: dict) -> dict:
             risk_score = max(risk_score, 100)
             details["country_block"] = {"country": country_display, "blocked": True}
 
-    # ── 8. Banco emissor ─────────────────────────────────────────────────
-    if bank_name:
-        bank_key = bank_name.lower().strip()
-        if bank_key in FLAGGED_BANKS:
-            bank_info = FLAGGED_BANKS[bank_key]
-            alert_msg = (
-                f"Banco '{bank_name}' na lista de suspeitos "
-                f"(risco: {bank_info['risk_level']})"
-            )
-            if bank_info.get("reason"):
-                alert_msg += f" — {bank_info['reason']}"
-            alerts.append(alert_msg)
-            risk_add = {"alto": 35, "medio": 20, "baixo": 10}.get(
-                bank_info["risk_level"], 20
-            )
-            risk_score += risk_add
-            details["bank_analysis"] = {
-                "bank": bank_name,
-                "flagged": True,
-                "risk_level": bank_info["risk_level"],
-            }
+    # ── 8. Banco emissor (BIN lookup) ────────────────────────────────────
+    if card_number and payment_method == "credit_card":
+        bin_result = lookup_bin(card_number)
+        if bin_result.get("success"):
+            issuer = bin_result.get("issuer", "").upper().strip()
+            if not bank_name:
+                bank_name = bin_result.get("issuer", "")
+            details["bin_lookup"] = bin_result
+            if issuer and issuer in _flagged_banks:
+                info = _flagged_banks[issuer]
+                risk_map = {"alto": 35, "medio": 20, "baixo": 10}
+                penalty = risk_map.get(info.get("risk_level", "medio"), 20)
+                reason_txt = info.get("reason", "")
+                msg = (
+                    f"Banco emissor suspeito: {issuer} (risco {info.get('risk_level','medio').upper()})"
+                    + (f" — {reason_txt}" if reason_txt else "")
+                )
+                alerts.append(msg)
+                risk_score += penalty
+                details["bank_analysis"] = {
+                    "issuer": issuer,
+                    "flagged": True,
+                    "risk_level": info.get("risk_level"),
+                    "reason": reason_txt,
+                    "penalty": penalty,
+                }
+            else:
+                details["bank_analysis"] = {"issuer": issuer or bank_name, "flagged": False}
         else:
-            details["bank_analysis"] = {"bank": bank_name, "flagged": False}
+            details["bin_lookup"] = {"success": False, "error": bin_result.get("error", "")}
 
     # ── 9. Velocity check (cartão) ───────────────────────────────────────
     auto_block_entity = False

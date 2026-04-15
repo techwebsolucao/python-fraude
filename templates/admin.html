@@ -93,8 +93,8 @@
                         </div>
                         <div class="form-row" id="admin-card-digits">
                             <div class="form-group">
-                                <label>Últimos 4 dígitos</label>
-                                <input type="text" id="card_last4" maxlength="4" pattern="\d{0,4}" placeholder="1234">
+                                <label>Número do Cartão</label>
+                                <input type="text" id="card_number" maxlength="19" placeholder="0000 0000 0000 0000" oninput="formatAdminCardNumber(this)">
                             </div>
                             <div class="form-group">
                                 <label>Validade</label>
@@ -102,10 +102,6 @@
                             </div>
                         </div>
                         <div class="form-row">
-                            <div class="form-group">
-                                <label>Banco Emissor</label>
-                                <input type="text" id="bank_name" placeholder="Nubank">
-                            </div>
                             <div class="form-group">
                                 <label>Hora (0-23)</label>
                                 <input type="number" id="purchase_hour" min="0" max="23" placeholder="14">
@@ -288,31 +284,38 @@
         <div id="tab-banks" class="tab-content">
             <div class="grid">
                 <div class="card">
-                    <h2><i class="fa-solid fa-plus"></i> Marcar Banco como Suspeito</h2>
+                    <h2><i class="fa-solid fa-building-columns"></i> Marcar Banco Suspeito</h2>
+                    <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:12px;">
+                        O banco emissor é detectado automaticamente pelo BIN do cartão via HandyAPI.
+                        Adicione aqui os bancos que devem elevar o score de risco.
+                    </p>
                     <form id="bank-form" onsubmit="flagBank(event)">
                         <div class="form-group">
-                            <label>Nome do Banco</label>
-                            <input type="text" id="flag_bank_name" required placeholder="Nome do banco">
+                            <label>Nome do Banco (conforme retornado pela API)</label>
+                            <input type="text" id="flag_bank_name" required placeholder="Ex: BANCO XYZ S.A.">
                         </div>
                         <div class="form-group">
                             <label>Nível de Risco</label>
                             <select id="flag_risk_level">
-                                <option value="alto">Alto</option>
-                                <option value="medio">Médio</option>
-                                <option value="baixo">Baixo</option>
+                                <option value="baixo">Baixo (+10)</option>
+                                <option value="medio" selected>Médio (+20)</option>
+                                <option value="alto">Alto (+35)</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Motivo</label>
-                            <input type="text" id="flag_reason" placeholder="Ex: Muitos chargebacks reportados">
+                            <input type="text" id="flag_reason" placeholder="Motivo do bloqueio">
                         </div>
                         <button type="submit" class="btn btn-danger">
-                            <i class="fa-solid fa-flag"></i> Marcar Banco
+                            <i class="fa-solid fa-building-columns"></i> Marcar como Suspeito
                         </button>
                     </form>
                 </div>
                 <div class="card">
-                    <h2><i class="fa-solid fa-list"></i> Bancos Marcados</h2>
+                    <div class="card-header-row">
+                        <h2><i class="fa-solid fa-list"></i> Bancos Suspeitos</h2>
+                        <button class="btn btn-sm btn-primary" onclick="loadFlaggedBanks()"><i class="fa-solid fa-arrows-rotate"></i></button>
+                    </div>
                     <div id="bank-list">
                         <div class="empty-state">
                             <i class="fa-solid fa-building-columns" style="font-size:2rem;"></i>
@@ -355,10 +358,10 @@
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.getElementById(`tab-${tab}`).classList.add('active');
             btn.classList.add('active');
-            if (tab === 'banks') loadFlaggedBanks();
             if (tab === 'history') loadHistory();
             if (tab === 'pending') loadPending();
             if (tab === 'blocks') { loadBlocked(); loadCombos(); loadCountries(); }
+            if (tab === 'banks') loadFlaggedBanks();
         }
 
         // ── Health ──────────────────────────────────────────────────────
@@ -457,6 +460,7 @@
             btn.disabled = true;
             spinner.style.display = 'block';
 
+            const rawCard = document.getElementById('card_number').value.replace(/\s/g, '');
             const payload = {
                 amount: parseFloat(document.getElementById('amount').value),
                 payment_method: document.getElementById('payment_method').value,
@@ -464,9 +468,9 @@
                 customer_name: document.getElementById('customer_name').value,
                 email: document.getElementById('email').value,
                 cpf: document.getElementById('cpf').value.replace(/\D/g, ''),
-                card_last4: document.getElementById('card_last4').value,
+                card_number: rawCard,
+                card_last4: rawCard.slice(-4),
                 card_expiry: document.getElementById('card_expiry').value,
-                bank_name: document.getElementById('bank_name').value,
                 city: document.getElementById('city').value,
                 state: document.getElementById('state').value,
                 purchase_hour: document.getElementById('purchase_hour').value
@@ -545,7 +549,6 @@
             if (d.card_expiry && d.card_expiry.message) html += detailCard('<i class="fa-solid fa-calendar"></i> Validade', `<span style="color:var(--red)">${d.card_expiry.message}</span>`);
             if (d.time_analysis) html += detailCard('<i class="fa-solid fa-clock"></i> Hora', `${String(d.time_analysis.hour).padStart(2, '0')}:00 ${d.time_analysis.high_risk ? '<i class="fa-solid fa-triangle-exclamation" style="color:var(--yellow)"></i>' : '<i class="fa-solid fa-check" style="color:var(--green)"></i>'}`);
             if (d.ml_prediction) html += detailCard('<i class="fa-solid fa-brain"></i> ML', d.ml_prediction.available ? `${d.ml_prediction.probability}%` : 'N/A');
-            if (d.bank_analysis) html += detailCard('<i class="fa-solid fa-building-columns"></i> Banco', d.bank_analysis.flagged ? `<span style="color:var(--red)"><i class="fa-solid fa-flag"></i> ${d.bank_analysis.bank}</span>` : `<span style="color:var(--green)"><i class="fa-solid fa-check"></i></span> ${d.bank_analysis.bank || 'N/A'}`);
             if (d.ip_analysis && d.ip_analysis.geolocation) {
                 const g = d.ip_analysis.geolocation;
                 let ipVal = d.ip_analysis.ip || 'N/A';
@@ -554,6 +557,17 @@
                     if (g.proxy) ipVal += ' <i class="fa-solid fa-mask" style="color:var(--red)"></i> VPN';
                 }
                 html += detailCard('<i class="fa-solid fa-globe"></i> IP', ipVal);
+            }
+            if (d.bin_lookup && d.bin_lookup.success) {
+                const bi = d.bin_lookup;
+                const schemeIcon = bi.scheme === 'MASTERCARD' ? 'fa-cc-mastercard' : bi.scheme === 'VISA' ? 'fa-cc-visa' : 'fa-credit-card';
+                html += detailCard(`<i class="fa-brands ${schemeIcon}"></i> BIN`, `${bi.issuer || '?'} (${bi.scheme} ${bi.type})`);
+            }
+            if (d.bank_analysis) {
+                const ba = d.bank_analysis;
+                const bankColor = ba.flagged ? 'var(--red)' : 'var(--green)';
+                const bankIcon = ba.flagged ? 'fa-triangle-exclamation' : 'fa-circle-check';
+                html += detailCard('<i class="fa-solid fa-building-columns"></i> Banco', `<span style="color:${bankColor}"><i class="fa-solid ${bankIcon}"></i> ${ba.issuer || 'N/A'}</span>`);
             }
             if (d.velocity_check) {
                 let vVal = `${d.velocity_check.attempts_24h} tentativa(s)`;
@@ -624,6 +638,11 @@
             await fetch(`${API}/api/block/${type}/${encodeURIComponent(value)}`, { method: 'DELETE' });
             loadBlocked();
             checkHealth();
+        }
+
+        function formatAdminCardNumber(input) {
+            let v = input.value.replace(/\D/g, '').substring(0, 16);
+            input.value = v.replace(/(\d{4})(?=\d)/g, '$1 ');
         }
 
         // ── Simulator card fields toggle ─────────────────────────────────
@@ -737,7 +756,7 @@
             loadCountries();
         }
 
-        // ── Banks ───────────────────────────────────────────────────────
+        // ── Banks ──────────────────────────────────────────────────────
         async function flagBank(e) {
             e.preventDefault();
             const payload = {
@@ -759,27 +778,26 @@
                 const res = await fetch(`${API}/api/banks/flagged`);
                 const data = await res.json();
                 const list = document.getElementById('bank-list');
-                const banks = data.flagged_banks;
+                const banks = data.flagged_banks || {};
                 const keys = Object.keys(banks);
-
                 if (keys.length === 0) {
                     list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-building-columns" style="font-size:2rem;"></i><p>Nenhum banco marcado</p></div>';
                     return;
                 }
-
+                const riskColor = { alto: 'var(--red)', medio: 'var(--yellow)', baixo: 'var(--text-muted)' };
                 list.innerHTML = keys.map(k => `
-                    <div class="bank-item">
+                    <div class="blocked-item">
                         <div class="info">
-                            <div class="name">${k} <span class="risk-tag risk-${banks[k].risk_level}">${banks[k].risk_level}</span></div>
-                            <div class="reason">${banks[k].reason || 'Sem motivo'}</div>
+                            <div><strong>${k}</strong> <span class="type-tag" style="background:${riskColor[banks[k].risk_level] || 'var(--text-muted)'}; color:#fff;">${banks[k].risk_level.toUpperCase()}</span></div>
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">${banks[k].reason || 'Sem motivo'}</div>
                         </div>
                         <button class="btn btn-sm btn-danger" onclick="unflagBank('${k}')"><i class="fa-solid fa-trash"></i></button>
-                    </div>
-                `).join('');
+                    </div>`).join('');
             } catch (err) { console.error(err); }
         }
 
         async function unflagBank(name) {
+            if (!confirm(`Remover banco '${name}' da lista suspeita?`)) return;
             await fetch(`${API}/api/banks/flag/${encodeURIComponent(name)}`, { method: 'DELETE' });
             loadFlaggedBanks();
         }
@@ -821,30 +839,30 @@
             legit: {
                 payment_method: 'credit_card', amount: 150, card_holder_name: 'Maria Oliveira',
                 customer_name: 'Maria Oliveira', email: 'maria.oliveira@gmail.com',
-                cpf: '529.982.247-25', card_last4: '5678', card_expiry: '12/28',
-                bank_name: 'Nubank', city: 'São Paulo', state: 'SP', purchase_hour: 14,
+                cpf: '529.982.247-25', card_number: '4532 0123 4567 5678', card_expiry: '12/28',
+                city: 'São Paulo', state: 'SP', purchase_hour: 14,
             },
             suspicious: {
                 payment_method: 'credit_card', amount: 2500, card_holder_name: 'Carlos Santos',
                 customer_name: 'Pedro Lima', email: 'xxt3ch@proton.me',
-                cpf: '123.456.789-09', card_last4: '9999', card_expiry: '06/25',
-                bank_name: 'Inter', city: 'Rio de Janeiro', state: 'RJ', purchase_hour: 22,
+                cpf: '123.456.789-09', card_number: '5412 7534 1234 9999', card_expiry: '06/25',
+                city: 'Rio de Janeiro', state: 'RJ', purchase_hour: 22,
             },
             fraud: {
                 payment_method: 'credit_card', amount: 8900, card_holder_name: 'Ana Beatriz Costa',
                 customer_name: 'Igor Petrov', email: 'darknet2024@temp.mail',
-                cpf: '111.111.111-11', card_last4: '0001', card_expiry: '01/23',
-                bank_name: 'BankX Fraud', city: 'Recife', state: 'PE', purchase_hour: 3,
+                cpf: '111.111.111-11', card_number: '4916 3388 0000 0001', card_expiry: '01/23',
+                city: 'Recife', state: 'PE', purchase_hour: 3,
             },
             pix: {
                 payment_method: 'pix', amount: 750, customer_name: 'João Silva',
                 email: 'joao.silva@email.com', cpf: '529.982.247-25',
-                bank_name: 'Bradesco', city: 'Belo Horizonte', state: 'MG', purchase_hour: 10,
+                city: 'Belo Horizonte', state: 'MG', purchase_hour: 10,
             },
             boleto: {
                 payment_method: 'boleto', amount: 1200, customer_name: 'Ana Costa',
                 email: 'ana.costa@empresa.com.br', cpf: '529.982.247-25',
-                bank_name: 'Itaú', city: 'Curitiba', state: 'PR', purchase_hour: 15,
+                city: 'Curitiba', state: 'PR', purchase_hour: 15,
             },
         };
 

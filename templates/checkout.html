@@ -126,11 +126,6 @@
                 </div>
 
                 <div class="form-group">
-                    <label><i class="fa-solid fa-building-columns"></i> Banco</label>
-                    <input type="text" id="bank_name" placeholder="Ex: Nubank, Itaú, Bradesco...">
-                </div>
-
-                <div class="form-group">
                     <label><i class="fa-solid fa-dollar-sign"></i> Valor (R$)</label>
                     <input type="number" id="amount" step="0.01" min="0.01" required placeholder="150.00"
                            value="299.90">
@@ -282,7 +277,6 @@
                 card_holder_name: document.getElementById('card_holder_name').value,
                 card_last4: currentMethod === 'credit_card' ? last4 : '',
                 card_expiry: currentMethod === 'credit_card' ? document.getElementById('card_expiry').value : '',
-                bank_name: document.getElementById('bank_name').value,
                 city: document.getElementById('city').value,
                 state: document.getElementById('state').value,
                 purchase_hour: new Date().getHours(),
@@ -367,38 +361,38 @@
                 amount: 150, card_holder_name: 'Maria Oliveira', customer_name: 'Maria Oliveira',
                 email: 'maria.oliveira@gmail.com', cpf: '529.982.247-25',
                 card_number: '4532 0123 4567 5678', card_expiry: '12/28',
-                bank_name: 'Nubank', city: 'São Paulo', state: 'SP',
+                city: 'São Paulo', state: 'SP',
             },
             suspicious: {
                 method: 'credit_card',
                 amount: 2500, card_holder_name: 'Carlos Santos', customer_name: 'Pedro Lima',
                 email: 'xxt3ch@proton.me', cpf: '123.456.789-09',
                 card_number: '5412 7534 1234 9999', card_expiry: '06/25',
-                bank_name: 'Inter', city: 'Rio de Janeiro', state: 'RJ',
+                city: 'Rio de Janeiro', state: 'RJ',
             },
             fraud: {
                 method: 'credit_card',
                 amount: 8900, card_holder_name: 'Ana Beatriz Costa', customer_name: 'Igor Petrov',
                 email: 'darknet2024@temp.mail', cpf: '111.111.111-11',
                 card_number: '4916 3388 0000 0001', card_expiry: '01/23',
-                bank_name: 'BankX Fraud', city: 'Recife', state: 'PE',
+                city: 'Recife', state: 'PE',
             },
             pix_test: {
                 method: 'pix',
                 amount: 750, customer_name: 'João Silva', email: 'joao.silva@email.com',
-                cpf: '529.982.247-25', bank_name: 'Bradesco', city: 'Belo Horizonte', state: 'MG',
+                cpf: '529.982.247-25', city: 'Belo Horizonte', state: 'MG',
             },
             boleto_test: {
                 method: 'boleto',
                 amount: 1200, customer_name: 'Ana Costa', email: 'ana.costa@empresa.com.br',
-                cpf: '529.982.247-25', bank_name: 'Itaú', city: 'Curitiba', state: 'PR',
+                cpf: '529.982.247-25', city: 'Curitiba', state: 'PR',
             },
             velocity: {
                 method: 'credit_card',
                 amount: 200, card_holder_name: 'Nome Diferente', customer_name: 'Outro Nome',
                 email: 'random@email.com', cpf: '529.982.247-25',
                 card_number: '4532 0000 0000 4444', card_expiry: '12/28',
-                bank_name: 'C6 Bank', city: 'Brasília', state: 'DF',
+                city: 'Brasília', state: 'DF',
             },
         };
 

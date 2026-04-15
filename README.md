@@ -20,12 +20,12 @@ Plug into any gateway — the HTML frontend is a demo, **the API is the product*
 ## Features
 
 - **Risk scoring (0–100)** with automatic decision: `APPROVED`, `MANUAL REVIEW`, or `BLOCKED`
-- **13 layered fraud checks** — ML, velocity, geolocation, name matching, CPF validation, expiry, and more
+- **14 layered fraud checks** — ML, BIN lookup, velocity, geolocation, name matching, CPF validation, expiry, and more
 - **Payment methods**: Credit card, PIX, Boleto
 - **Individual blocking**: email, CPF, IP address
 - **Combo blocking**: block when multiple fields match simultaneously (e.g. `email + CPF`, `card_last4 + email + IP`)
 - **Country allowlist**: accept transactions only from specific countries
-- **Suspicious bank list**: flag known high-risk issuers
+- **Suspicious bank list**: flag known high-risk issuers detected via BIN lookup
 - **Persistent history**: transactions and blocks saved to JSON (swap for DB in production)
 - **Manual review queue**: hold pending transactions for human approval/rejection
 - **Auto-block**: velocity trigger auto-blocks email/CPF on fraud pattern detection
@@ -48,7 +48,7 @@ Plug into any gateway — the HTML frontend is a demo, **the API is the product*
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-username/agmete.git
+git clone https://github.com/techwebsolucao/agmete.git
 cd agmete
 
 python -m venv venv
@@ -99,6 +99,33 @@ docker run -p 8000:8000 -v $(pwd)/data:/app/data -v $(pwd)/models:/app/models ag
 
 All endpoints return JSON. Base URL: `http://localhost:8000`
 
+### Quick Reference
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/payment` | Analyze a transaction (main endpoint) |
+| `GET` | `/api/transactions/pending` | List transactions awaiting manual review |
+| `POST` | `/api/transactions/{id}/release` | Approve a pending transaction |
+| `POST` | `/api/transactions/{id}/reject` | Reject a pending transaction |
+| `GET` | `/api/transactions/history` | Full transaction history |
+| `POST` | `/api/block` | Block an email, CPF, or IP |
+| `DELETE` | `/api/block/{type}/{value}` | Unblock an entity |
+| `GET` | `/api/blocked` | List all blocked entities |
+| `POST` | `/api/combos` | Create a combo block (2+ fields) |
+| `DELETE` | `/api/combos/{id}` | Remove a combo block |
+| `GET` | `/api/combos` | List all combo blocks |
+| `GET` | `/api/countries` | List allowed countries |
+| `POST` | `/api/countries/{country}` | Add a country to the allowlist |
+| `DELETE` | `/api/countries/{country}` | Remove a country |
+| `POST` | `/api/countries` | Replace full country list |
+| `POST` | `/api/banks/flag` | Flag a bank issuer as suspicious |
+| `DELETE` | `/api/banks/flag/{name}` | Unflag a bank issuer |
+| `GET` | `/api/banks/flagged` | List all flagged bank issuers |
+| `GET` | `/api/health` | System status |
+| `GET` | `/api/ip-info` | Client IP + geolocation |
+
+---
+
 ### Analyze a transaction
 
 ```http
@@ -114,17 +141,16 @@ Content-Type: application/json
   "email": "joao@email.com",
   "cpf": "529.982.247-25",
   "card_holder_name": "JOAO SILVA",
-  "card_last4": "4321",
+  "card_number": "4532 0123 4567 5678",
   "card_expiry": "12/28",
-  "bank_name": "Nubank",
   "city": "São Paulo",
-  "state": "SP",
-  "purchase_hour": 14
+  "state": "SP"
 }
 ```
 
 `payment_method`: `"credit_card"` | `"pix"` | `"boleto"`  
-Card fields (`card_holder_name`, `card_last4`, `card_expiry`) are only used for `credit_card`.
+Card fields (`card_holder_name`, `card_number`, `card_expiry`) are only used for `credit_card`.  
+`card_number` is used to identify the issuing bank via BIN lookup (first 6–8 digits).
 
 **Response:**
 ```json
@@ -134,7 +160,12 @@ Card fields (`card_holder_name`, `card_last4`, `card_expiry`) are only used for 
   "decision": "APROVADO",
   "decision_reason": "Transação dentro dos parâmetros normais",
   "alerts": [],
-  "details": { "ml_prediction": {...}, "ip_analysis": {...}, ... },
+  "details": {
+    "bin_lookup": { "issuer": "ITAU UNIBANCO S.A.", "scheme": "VISA", "type": "CREDIT" },
+    "bank_analysis": { "issuer": "ITAU UNIBANCO S.A.", "flagged": false },
+    "ml_prediction": { "probability": 3.2, "prediction": "legitimate" },
+    "ip_analysis": { ... }
+  },
   "customer_response": {
     "message": "Pagamento aprovado com sucesso!",
     "status": "success",
@@ -142,6 +173,10 @@ Card fields (`card_holder_name`, `card_last4`, `card_expiry`) are only used for 
   }
 }
 ```
+
+> **Note:** `customer_response` is the only field that should be shown to the end customer. Everything else is for your backend/admin use only.
+
+---
 
 ### Individual Blocking
 
@@ -187,6 +222,30 @@ POST   /api/countries                 Replace full list: { "countries": ["Brazil
 
 By default, only `Brazil` is allowed. Transactions with IPs from other countries are blocked.
 
+### Suspicious Banks
+
+Bank issuers are identified automatically from the card number via [HandyAPI BIN lookup](https://www.handyapi.com/bin-list). Configure your key in `.env`:
+
+```
+HANDY_API_KEY=your_key_here
+```
+
+Then flag issuers to increase the risk score on matching transactions:
+
+```http
+POST   /api/banks/flag                Flag a bank issuer as suspicious
+DELETE /api/banks/flag/{name}         Unflag
+GET    /api/banks/flagged             List all flagged issuers
+```
+
+```json
+// POST /api/banks/flag
+// Use the exact bank name as returned by the BIN lookup (e.g. from details.bin_lookup.issuer)
+{ "bank_name": "BANCO XYZ S.A.", "risk_level": "alto", "reason": "High chargeback rate" }
+```
+
+`risk_level`: `"baixo"` (+10) | `"medio"` (+20) | `"alto"` (+35)
+
 ### Transaction Queue
 
 ```http
@@ -194,14 +253,6 @@ GET  /api/transactions/pending
 GET  /api/transactions/history?limit=100
 POST /api/transactions/{id}/release
 POST /api/transactions/{id}/reject
-```
-
-### Suspicious Banks
-
-```http
-POST   /api/banks/flag            { "bank_name": "...", "risk_level": "alto|medio|baixo", "reason": "..." }
-DELETE /api/banks/flag/{name}
-GET    /api/banks/flagged
 ```
 
 ### System
@@ -238,7 +289,7 @@ GET /api/ip-info      Client IP + geolocation
 | High-risk hour | Between 01:00–05:00 | +15 |
 | IP geolocation mismatch | City/region diverges from declared | +20 |
 | Proxy/VPN | IP flagged as proxy or hosting | +25 |
-| Suspicious bank | Bank in operator's flagged list | +10–35 |
+| Suspicious bank | Issuer in operator’s flagged list (via BIN) | +10–35 |
 | Velocity — multiple names | Same card, 3+ different names in 24h | +30–55 |
 | Velocity — excessive attempts | Same card, 10+ attempts in 24h | +30 + auto-block |
 | ML model | Random Forest fraud probability | up to +30 |
@@ -247,47 +298,94 @@ GET /api/ip-info      Client IP + geolocation
 
 ## Integrating via API
 
-The HTML frontend is for demo purposes only. In production, call the API directly from your backend:
+Agmete sits between your backend and your payment gateway:
 
-**Python:**
+```
+Browser  →  Your backend  →  Agmete  →  Stripe / gateway
+```
+
+When the customer submits the checkout form, the request hits **your backend**. At this point you already have the real client IP in the incoming request headers — just extract it and forward it to Agmete via the `ip_address` field.
+
+### ⚠️ Always forward the client IP
+
+If you omit `ip_address`, Agmete receives **your server's IP** instead of the customer's, breaking geolocation, VPN detection, and country blocking.
+
+**Python (Flask/FastAPI example):**
 ```python
 import requests
+from fastapi import Request
 
-result = requests.post("https://your-agmete.com/api/payment", json={
-    "amount": 299.90,
-    "payment_method": "pix",
-    "customer_name": "Maria Oliveira",
-    "email": "maria@empresa.com",
-    "cpf": "52998224725",
-    "city": "São Paulo",
-    "state": "SP",
-}).json()
+@app.post("/checkout")
+def checkout(data: dict, request: Request):
+    # Extract the real client IP from the incoming request
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if not client_ip:
+        client_ip = request.client.host
 
-if result["decision"] == "APROVADO":
-    pass  # proceed with payment
-elif result["decision"] == "REVISÃO MANUAL":
-    pass  # hold order
-else:
-    pass  # block
+    result = requests.post("https://your-agmete.com/api/payment", json={
+        "amount": data["amount"],
+        "payment_method": data["payment_method"],
+        "customer_name": data["customer_name"],
+        "email": data["email"],
+        "cpf": data["cpf"],
+        "card_number": data["card_number"],
+        "card_expiry": data["card_expiry"],
+        "card_holder_name": data["card_holder_name"],
+        "ip_address": client_ip,   # ← real client IP from the incoming request
+        "city": data["city"],
+        "state": data["state"],
+    }).json()
+
+    if result["decision"] == "APROVADO":
+        pass  # proceed with payment gateway
+    elif result["decision"] == "REVISÃO MANUAL":
+        pass  # hold order
+    else:
+        pass  # reject — show result["customer_response"]["message"] to the customer
 ```
 
-**Node.js:**
+**Node.js (Express example):**
 ```javascript
-const result = await fetch('https://your-agmete.com/api/payment', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ amount: 150, payment_method: 'credit_card', ... }),
-}).then(r => r.json());
+app.post('/checkout', async (req, res) => {
+    const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+                  || req.socket.remoteAddress;
+
+    const result = await fetch('https://your-agmete.com/api/payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            ...req.body,
+            ip_address: clientIp,   // ← real client IP from the incoming request
+        }),
+    }).then(r => r.json());
+
+    res.json(result.customer_response);
+});
 ```
 
-**PHP:**
+**PHP example:**
 ```php
+$clientIp = $_SERVER['HTTP_X_FORWARDED_FOR']
+    ?? $_SERVER['REMOTE_ADDR']
+    ?? '';
+
 $result = json_decode(file_get_contents('https://your-agmete.com/api/payment', false,
-  stream_context_create(['http' => [
-    'method' => 'POST',
-    'header' => 'Content-Type: application/json',
-    'content' => json_encode(['amount' => 150, 'payment_method' => 'pix', ...]),
-  ]])
+    stream_context_create(['http' => [
+        'method' => 'POST',
+        'header' => 'Content-Type: application/json',
+        'content' => json_encode([
+            'amount'          => $_POST['amount'],
+            'payment_method'  => $_POST['payment_method'],
+            'customer_name'   => $_POST['customer_name'],
+            'email'           => $_POST['email'],
+            'cpf'             => $_POST['cpf'],
+            'card_number'     => $_POST['card_number'],
+            'card_expiry'     => $_POST['card_expiry'],
+            'ip_address'      => $clientIp,   // ← real client IP from the incoming request
+            'city'            => $_POST['city'],
+            'state'           => $_POST['state'],
+        ]),
+    ]])
 ), true);
 ```
 
