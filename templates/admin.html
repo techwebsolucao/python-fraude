@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agmete - Painel Admin</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fa-solid fa-shield-halved"></i> Agmete</h1>
+            <p>Painel Administrativo</p>
+            <div class="status-badge">
+                <span class="status-dot"></span>
+                <span id="api-status">Verificando...</span>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('pending', this)"><i class="fa-solid fa-clock"></i> Pendentes</button>
+            <button class="tab" onclick="switchTab('simulator', this)"><i class="fa-solid fa-credit-card"></i> Simulador</button>
+            <button class="tab" onclick="switchTab('blocks', this)"><i class="fa-solid fa-ban"></i> Bloqueios</button>
+            <button class="tab" onclick="switchTab('banks', this)"><i class="fa-solid fa-building-columns"></i> Bancos</button>
+            <button class="tab" onclick="switchTab('history', this)"><i class="fa-solid fa-chart-line"></i> Histórico</button>
+        </div>
+
+        <!-- Tab: Pending -->
+        <div id="tab-pending" class="tab-content active">
+            <div class="card">
+                <div class="card-header-row">
+                    <h2><i class="fa-solid fa-triangle-exclamation"></i> Transações Pendentes</h2>
+                    <button class="btn btn-sm btn-primary" onclick="loadPending()"><i class="fa-solid fa-arrows-rotate"></i> Atualizar</button>
+                </div>
+                <div id="pending-list">
+                    <div class="empty-state">
+                        <i class="fa-solid fa-inbox" style="font-size:2rem;"></i>
+                        <p>Nenhuma transação pendente</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Simulator -->
+        <div id="tab-simulator" class="tab-content">
+            <div class="presets">
+                <span style="color: var(--text-dim); font-size: 0.75rem; padding: 6px 0;">Cenários:</span>
+                <button class="preset-btn" onclick="loadPreset('legit')"><i class="fa-solid fa-check"></i> Legítimo</button>
+                <button class="preset-btn" onclick="loadPreset('suspicious')"><i class="fa-solid fa-triangle-exclamation"></i> Suspeito</button>
+                <button class="preset-btn" onclick="loadPreset('fraud')"><i class="fa-solid fa-ban"></i> Fraude</button>
+                <button class="preset-btn" onclick="loadPreset('pix')"><i class="fa-brands fa-pix"></i> PIX</button>
+                <button class="preset-btn" onclick="loadPreset('boleto')"><i class="fa-solid fa-barcode"></i> Boleto</button>
+            </div>
+
+            <div class="grid">
+                <div class="card">
+                    <h2><i class="fa-solid fa-pen-to-square"></i> Dados da Transação</h2>
+                    <form id="payment-form" onsubmit="submitPayment(event)">
+                        <div class="form-group">
+                            <label>Método</label>
+                            <select id="payment_method" onchange="toggleAdminCardFields()">
+                                <option value="credit_card">Cartão de Crédito</option>
+                                <option value="pix">PIX</option>
+                                <option value="boleto">Boleto</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Valor (R$)</label>
+                            <input type="number" id="amount" step="0.01" min="0.01" required placeholder="150.00">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group" id="admin-card-name">
+                                <label>Nome no Cartão</label>
+                                <input type="text" id="card_holder_name" placeholder="João da Silva">
+                            </div>
+                            <div class="form-group">
+                                <label>Nome do Cliente</label>
+                                <input type="text" id="customer_name" required placeholder="João da Silva">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input type="email" id="email" required placeholder="joao@email.com">
+                            </div>
+                            <div class="form-group">
+                                <label>CPF</label>
+                                <input type="text" id="cpf" maxlength="14" placeholder="000.000.000-00">
+                            </div>
+                        </div>
+                        <div class="form-row" id="admin-card-digits">
+                            <div class="form-group">
+                                <label>Últimos 4 dígitos</label>
+                                <input type="text" id="card_last4" maxlength="4" pattern="\d{0,4}" placeholder="1234">
+                            </div>
+                            <div class="form-group">
+                                <label>Validade</label>
+                                <input type="text" id="card_expiry" maxlength="5" placeholder="MM/AA">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Banco Emissor</label>
+                                <input type="text" id="bank_name" placeholder="Nubank">
+                            </div>
+                            <div class="form-group">
+                                <label>Hora (0-23)</label>
+                                <input type="number" id="purchase_hour" min="0" max="23" placeholder="14">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Cidade</label>
+                                <input type="text" id="city" placeholder="São Paulo">
+                            </div>
+                            <div class="form-group">
+                                <label>Estado</label>
+                                <input type="text" id="state" placeholder="SP">
+                            </div>
+                        </div>
+                        <div class="spinner" id="spinner"></div>
+                        <button type="submit" class="btn btn-primary" id="submit-btn">
+                            <i class="fa-solid fa-magnifying-glass"></i> Analisar
+                        </button>
+                    </form>
+                </div>
+
+                <div>
+                    <div id="result-panel" class="card">
+                        <div class="result-header">
+                            <h2><i class="fa-solid fa-chart-pie"></i> Resultado</h2>
+                            <span class="tx-id" id="tx-id"></span>
+                        </div>
+                        <div class="score-container">
+                            <div class="score-ring">
+                                <svg width="140" height="140">
+                                    <circle class="bg" cx="70" cy="70" r="58" fill="none" stroke-width="10"/>
+                                    <circle class="progress" id="score-circle" cx="70" cy="70" r="58" fill="none"
+                                        stroke-width="10" stroke-linecap="round"
+                                        stroke-dasharray="364.42" stroke-dashoffset="364.42"/>
+                                </svg>
+                                <div class="score-value" id="score-value">0</div>
+                            </div>
+                            <div id="decision-badge" class="decision-badge"></div>
+                        </div>
+                        <p style="text-align:center; font-size:0.8rem; color:var(--text-muted); margin-top:6px;" id="decision-reason"></p>
+                        <div id="customer-msg" style="text-align:center; margin:8px 0; padding:8px; background:var(--bg); border-radius:6px;">
+                            <span style="font-size:0.72rem; color:var(--text-dim);">Mensagem ao cliente:</span>
+                            <p id="customer-msg-text" style="font-size:0.82rem; margin-top:3px;"></p>
+                        </div>
+                        <div class="alerts-list" id="alerts-list"></div>
+                        <div class="detail-grid" id="detail-grid"></div>
+                    </div>
+                    <div id="empty-result" class="card">
+                        <div class="empty-state">
+                            <i class="fa-solid fa-shield-halved" style="font-size:2rem;"></i>
+                            <p>Preencha os dados e clique em <strong>Analisar</strong></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Blocks -->
+        <div id="tab-blocks" class="tab-content">
+
+            <!-- Bloqueio Individual -->
+            <div class="grid" style="margin-bottom:20px;">
+                <div class="card">
+                    <h2><i class="fa-solid fa-ban"></i> Bloqueio Individual</h2>
+                    <form id="block-form" onsubmit="blockEntity(event)">
+                        <div class="form-group">
+                            <label>Tipo</label>
+                            <select id="block_type">
+                                <option value="email">Email</option>
+                                <option value="cpf">CPF</option>
+                                <option value="ip">IP</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Valor</label>
+                            <input type="text" id="block_value" required placeholder="email, CPF ou IP a bloquear">
+                        </div>
+                        <div class="form-group">
+                            <label>Motivo</label>
+                            <input type="text" id="block_reason" placeholder="Motivo do bloqueio">
+                        </div>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fa-solid fa-ban"></i> Bloquear
+                        </button>
+                    </form>
+                </div>
+                <div class="card">
+                    <div class="card-header-row">
+                        <h2><i class="fa-solid fa-lock"></i> Entidades Bloqueadas</h2>
+                        <button class="btn btn-sm btn-primary" onclick="loadBlocked()"><i class="fa-solid fa-arrows-rotate"></i></button>
+                    </div>
+                    <div id="blocked-list">
+                        <div class="empty-state">
+                            <i class="fa-solid fa-lock-open" style="font-size:2rem;"></i>
+                            <p>Nenhuma entidade bloqueada</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bloqueio Combinado -->
+            <div class="grid" style="margin-bottom:20px;">
+                <div class="card">
+                    <h2><i class="fa-solid fa-layer-group"></i> Bloqueio Combinado</h2>
+                    <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:12px;">
+                        Preencha 2+ campos. A transação é bloqueada somente quando <strong>todos</strong> os campos coincidirem.
+                    </p>
+                    <form id="combo-form" onsubmit="blockCombo(event)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label><i class="fa-solid fa-envelope" style="width:12px;"></i> Email</label>
+                                <input type="text" id="combo_email" placeholder="email@exemplo.com">
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fa-solid fa-id-card" style="width:12px;"></i> CPF</label>
+                                <input type="text" id="combo_cpf" placeholder="000.000.000-00">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label><i class="fa-solid fa-globe" style="width:12px;"></i> IP</label>
+                                <input type="text" id="combo_ip" placeholder="1.2.3.4">
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fa-solid fa-credit-card" style="width:12px;"></i> Últimos 4 dígitos</label>
+                                <input type="text" id="combo_card_last4" maxlength="4" placeholder="1234">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Motivo</label>
+                            <input type="text" id="combo_reason" placeholder="Motivo do bloqueio combinado">
+                        </div>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fa-solid fa-layer-group"></i> Criar Bloqueio Combinado
+                        </button>
+                    </form>
+                </div>
+                <div class="card">
+                    <div class="card-header-row">
+                        <h2><i class="fa-solid fa-link"></i> Combos Bloqueados</h2>
+                        <button class="btn btn-sm btn-primary" onclick="loadCombos()"><i class="fa-solid fa-arrows-rotate"></i></button>
+                    </div>
+                    <div id="combos-list">
+                        <div class="empty-state">
+                            <i class="fa-solid fa-layer-group" style="font-size:2rem;"></i>
+                            <p>Nenhum bloqueio combinado</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Países Permitidos -->
+            <div class="card">
+                <div class="card-header-row">
+                    <h2><i class="fa-solid fa-globe"></i> Países Permitidos</h2>
+                    <button class="btn btn-sm btn-primary" onclick="loadCountries()"><i class="fa-solid fa-arrows-rotate"></i></button>
+                </div>
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:12px;">
+                    Apenas transações originadas nestes países serão aceitas. Lista vazia = aceita qualquer país.
+                </p>
+                <div style="display:flex; gap:8px; margin-bottom:12px; align-items:flex-end;">
+                    <div class="form-group" style="margin-bottom:0; flex:1;">
+                        <input type="text" id="new_country" placeholder="Ex: Brazil, United States, Argentina...">
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="addCountry()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+                    <button class="btn btn-sm" onclick="clearAllCountries()" style="background:var(--surface2); color:var(--text-muted); border:1px solid var(--border);"><i class="fa-solid fa-earth-americas"></i> Liberar todos</button>
+                </div>
+                <div id="countries-list">
+                    <div class="empty-state">
+                        <i class="fa-solid fa-earth-americas" style="font-size:2rem;"></i>
+                        <p>Todos os países aceitos</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Tab: Banks -->
+        <div id="tab-banks" class="tab-content">
+            <div class="grid">
+                <div class="card">
+                    <h2><i class="fa-solid fa-plus"></i> Marcar Banco como Suspeito</h2>
+                    <form id="bank-form" onsubmit="flagBank(event)">
+                        <div class="form-group">
+                            <label>Nome do Banco</label>
+                            <input type="text" id="flag_bank_name" required placeholder="Nome do banco">
+                        </div>
+                        <div class="form-group">
+                            <label>Nível de Risco</label>
+                            <select id="flag_risk_level">
+                                <option value="alto">Alto</option>
+                                <option value="medio">Médio</option>
+                                <option value="baixo">Baixo</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Motivo</label>
+                            <input type="text" id="flag_reason" placeholder="Ex: Muitos chargebacks reportados">
+                        </div>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fa-solid fa-flag"></i> Marcar Banco
+                        </button>
+                    </form>
+                </div>
+                <div class="card">
+                    <h2><i class="fa-solid fa-list"></i> Bancos Marcados</h2>
+                    <div id="bank-list">
+                        <div class="empty-state">
+                            <i class="fa-solid fa-building-columns" style="font-size:2rem;"></i>
+                            <p>Nenhum banco marcado</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: History -->
+        <div id="tab-history" class="tab-content">
+            <div class="card">
+                <div class="card-header-row">
+                    <h2><i class="fa-solid fa-chart-line"></i> Histórico de Transações</h2>
+                    <button class="btn btn-sm btn-primary" onclick="loadHistory()"><i class="fa-solid fa-arrows-rotate"></i></button>
+                </div>
+                <div id="history-list">
+                    <div class="empty-state">
+                        <i class="fa-solid fa-receipt" style="font-size:2rem;"></i>
+                        <p>Nenhuma transação registrada</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align:center; margin-top:16px;">
+            <a href="/" style="color:var(--text-dim); font-size:0.78rem; text-decoration:none;">
+                <i class="fa-solid fa-arrow-left"></i> Voltar ao Checkout
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+
+        // ── Tabs ────────────────────────────────────────────────────────
+        function switchTab(tab, btn) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            btn.classList.add('active');
+            if (tab === 'banks') loadFlaggedBanks();
+            if (tab === 'history') loadHistory();
+            if (tab === 'pending') loadPending();
+            if (tab === 'blocks') { loadBlocked(); loadCombos(); loadCountries(); }
+        }
+
+        // ── Health ──────────────────────────────────────────────────────
+        async function checkHealth() {
+            try {
+                const res = await fetch(`${API}/api/health`);
+                const data = await res.json();
+                const el = document.getElementById('api-status');
+                let parts = [];
+                parts.push(data.model_loaded ? 'ML Ativo' : 'ML Off');
+                parts.push(`${data.pending_transactions} pendente(s)`);
+                parts.push(`${data.total_transactions || 0} transações`);
+                if (data.blocked_entities > 0) parts.push(`${data.blocked_entities} bloqueio(s)`);
+                el.textContent = parts.join(' | ');
+            } catch {
+                document.getElementById('api-status').textContent = 'API Offline';
+            }
+        }
+
+        // ── Pending ─────────────────────────────────────────────────────
+        async function loadPending() {
+            try {
+                const res = await fetch(`${API}/api/transactions/pending`);
+                const data = await res.json();
+                const list = document.getElementById('pending-list');
+                const txs = data.pending;
+                const keys = Object.keys(txs);
+
+                if (keys.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-inbox" style="font-size:2rem;"></i><p>Nenhuma transação pendente</p></div>';
+                    return;
+                }
+
+                list.innerHTML = keys.map(k => {
+                    const tx = txs[k];
+                    const d = tx.details || {};
+                    const color = tx.risk_score >= 70 ? 'var(--red)' : 'var(--yellow)';
+                    const methodIcon = tx.payment_method === 'pix' ? 'fa-brands fa-pix' : tx.payment_method === 'boleto' ? 'fa-solid fa-barcode' : 'fa-solid fa-credit-card';
+
+                    let geoStr = '';
+                    if (d.ip_analysis && d.ip_analysis.geolocation && d.ip_analysis.geolocation.success) {
+                        const g = d.ip_analysis.geolocation;
+                        geoStr = `<span>IP: ${g.ip} (${g.city}, ${g.region})</span>`;
+                    }
+
+                    let velocityStr = '';
+                    if (d.velocity_check && d.velocity_check.attempts_24h > 1) {
+                        velocityStr = `<span style="color:var(--yellow)"><i class="fa-solid fa-bolt"></i> ${d.velocity_check.attempts_24h} tentativas</span>`;
+                    }
+
+                    return `
+                        <div class="pending-item" style="border-left-color:${color}">
+                            <div class="pending-info">
+                                <div class="pending-header">
+                                    <strong>${tx.transaction_id}</strong>
+                                    <i class="${methodIcon}" style="color:var(--text-dim);"></i>
+                                    <span class="risk-tag risk-${tx.risk_score >= 70 ? 'alto' : 'medio'}">Score: ${tx.risk_score}</span>
+                                    <span class="decision-badge-sm decision-${tx.decision === 'BLOQUEADO' ? 'BLOQUEADO' : 'review'}">${tx.decision}</span>
+                                </div>
+                                <div class="pending-details">
+                                    R$ ${d.amount_analysis ? d.amount_analysis.value.toFixed(2) : '?'}
+                                    ${d.name_match ? ` | ${d.name_match.card_holder} → ${d.name_match.customer_name} (${d.name_match.similarity}%)` : ''}
+                                </div>
+                                <div class="pending-details">${geoStr} ${velocityStr}</div>
+                                <div class="pending-alerts">
+                                    ${tx.alerts.slice(0, 3).map(a => `<span class="mini-alert"><i class="fa-solid fa-triangle-exclamation"></i> ${a}</span>`).join('')}
+                                    ${tx.alerts.length > 3 ? `<span class="mini-alert">+${tx.alerts.length - 3} alertas</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="pending-actions">
+                                <button class="btn btn-sm btn-success" onclick="releaseTx('${k}')"><i class="fa-solid fa-check"></i> Liberar</button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectTx('${k}')"><i class="fa-solid fa-xmark"></i> Rejeitar</button>
+                            </div>
+                        </div>`;
+                }).join('');
+            } catch (err) { console.error(err); }
+        }
+
+        async function releaseTx(txId) {
+            if (!confirm(`Liberar transação ${txId}?`)) return;
+            await fetch(`${API}/api/transactions/${txId}/release`, { method: 'POST' });
+            loadPending(); checkHealth();
+        }
+
+        async function rejectTx(txId) {
+            if (!confirm(`Rejeitar transação ${txId}?`)) return;
+            await fetch(`${API}/api/transactions/${txId}/reject`, { method: 'POST' });
+            loadPending(); checkHealth();
+        }
+
+        // ── Submit Payment (simulator) ──────────────────────────────────
+        async function submitPayment(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submit-btn');
+            const spinner = document.getElementById('spinner');
+            btn.disabled = true;
+            spinner.style.display = 'block';
+
+            const payload = {
+                amount: parseFloat(document.getElementById('amount').value),
+                payment_method: document.getElementById('payment_method').value,
+                card_holder_name: document.getElementById('card_holder_name').value,
+                customer_name: document.getElementById('customer_name').value,
+                email: document.getElementById('email').value,
+                cpf: document.getElementById('cpf').value.replace(/\D/g, ''),
+                card_last4: document.getElementById('card_last4').value,
+                card_expiry: document.getElementById('card_expiry').value,
+                bank_name: document.getElementById('bank_name').value,
+                city: document.getElementById('city').value,
+                state: document.getElementById('state').value,
+                purchase_hour: document.getElementById('purchase_hour').value
+                    ? parseInt(document.getElementById('purchase_hour').value) : null,
+            };
+
+            try {
+                const res = await fetch(`${API}/api/payment`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                displayResult(data);
+            } catch (err) {
+                alert('Erro: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+            }
+        }
+
+        function displayResult(data) {
+            document.getElementById('empty-result').style.display = 'none';
+            const panel = document.getElementById('result-panel');
+            panel.classList.add('show');
+
+            document.getElementById('tx-id').textContent = data.transaction_id;
+
+            const score = data.risk_score;
+            const circle = document.getElementById('score-circle');
+            const circumference = 364.42;
+            const offset = circumference - (score / 100) * circumference;
+            circle.style.strokeDashoffset = offset;
+
+            let color;
+            if (score >= 70) color = 'var(--red)';
+            else if (score >= 40) color = 'var(--yellow)';
+            else color = 'var(--green)';
+            circle.style.stroke = color;
+
+            const scoreEl = document.getElementById('score-value');
+            scoreEl.textContent = score;
+            scoreEl.style.color = color;
+
+            const badge = document.getElementById('decision-badge');
+            badge.textContent = data.decision;
+            badge.className = 'decision-badge';
+            if (data.decision === 'APROVADO') badge.classList.add('decision-APROVADO');
+            else if (data.decision === 'BLOQUEADO') badge.classList.add('decision-BLOQUEADO');
+            else badge.classList.add('decision-review');
+
+            document.getElementById('decision-reason').textContent = data.decision_reason;
+
+            if (data.customer_response) {
+                document.getElementById('customer-msg-text').textContent = data.customer_response.message;
+            }
+
+            const alertsList = document.getElementById('alerts-list');
+            if (data.alerts && data.alerts.length > 0) {
+                alertsList.innerHTML = '<h3 style="font-size:0.82rem; margin-bottom:8px; color:var(--yellow);"><i class="fa-solid fa-triangle-exclamation"></i> Alertas (' + data.alerts.length + ')</h3>' +
+                    data.alerts.map(a =>
+                        `<div class="alert-item${a.includes('bloqueado') || a.includes('fraudador') || a.includes('excessivas') ? ' critical' : ''}">${a}</div>`
+                    ).join('');
+            } else {
+                alertsList.innerHTML = '<p style="color:var(--green); font-size:0.82rem; text-align:center; padding:8px;"><i class="fa-solid fa-circle-check"></i> Nenhum alerta</p>';
+            }
+
+            const detailGrid = document.getElementById('detail-grid');
+            const d = data.details || {};
+            let html = '';
+
+            if (d.name_match) html += detailCard('<i class="fa-solid fa-user"></i> Nomes', `${d.name_match.similarity}%`);
+            if (d.email_analysis) html += detailCard('<i class="fa-solid fa-envelope"></i> Email', `${d.email_analysis.similarity_to_customer}%`);
+            if (d.cpf_validation) html += detailCard('<i class="fa-solid fa-id-card"></i> CPF', d.cpf_validation.valid ? '<span style="color:var(--green)">Válido</span>' : '<span style="color:var(--red)">Inválido</span>');
+            if (d.card_expiry && d.card_expiry.message) html += detailCard('<i class="fa-solid fa-calendar"></i> Validade', `<span style="color:var(--red)">${d.card_expiry.message}</span>`);
+            if (d.time_analysis) html += detailCard('<i class="fa-solid fa-clock"></i> Hora', `${String(d.time_analysis.hour).padStart(2, '0')}:00 ${d.time_analysis.high_risk ? '<i class="fa-solid fa-triangle-exclamation" style="color:var(--yellow)"></i>' : '<i class="fa-solid fa-check" style="color:var(--green)"></i>'}`);
+            if (d.ml_prediction) html += detailCard('<i class="fa-solid fa-brain"></i> ML', d.ml_prediction.available ? `${d.ml_prediction.probability}%` : 'N/A');
+            if (d.bank_analysis) html += detailCard('<i class="fa-solid fa-building-columns"></i> Banco', d.bank_analysis.flagged ? `<span style="color:var(--red)"><i class="fa-solid fa-flag"></i> ${d.bank_analysis.bank}</span>` : `<span style="color:var(--green)"><i class="fa-solid fa-check"></i></span> ${d.bank_analysis.bank || 'N/A'}`);
+            if (d.ip_analysis && d.ip_analysis.geolocation) {
+                const g = d.ip_analysis.geolocation;
+                let ipVal = d.ip_analysis.ip || 'N/A';
+                if (g.success) {
+                    ipVal += ` (${g.city}, ${g.region})`;
+                    if (g.proxy) ipVal += ' <i class="fa-solid fa-mask" style="color:var(--red)"></i> VPN';
+                }
+                html += detailCard('<i class="fa-solid fa-globe"></i> IP', ipVal);
+            }
+            if (d.velocity_check) {
+                let vVal = `${d.velocity_check.attempts_24h} tentativa(s)`;
+                if (d.velocity_check.unique_names.length > 1) vVal += ` | ${d.velocity_check.unique_names.length} nomes`;
+                html += detailCard('<i class="fa-solid fa-bolt"></i> Velocity', vVal);
+            }
+            if (d.blocked_entities) html += detailCard('<i class="fa-solid fa-ban"></i> Bloqueado', `<span style="color:var(--red)">${d.blocked_entities.length} entidade(s)</span>`);
+
+            detailGrid.innerHTML = html;
+        }
+
+        function detailCard(label, value) {
+            return `<div class="detail-item"><div class="label">${label}</div><div class="value">${value}</div></div>`;
+        }
+
+        // ── Blocks ──────────────────────────────────────────────────────
+        async function blockEntity(e) {
+            e.preventDefault();
+            const payload = {
+                entity_type: document.getElementById('block_type').value,
+                value: document.getElementById('block_value').value,
+                reason: document.getElementById('block_reason').value,
+            };
+            await fetch(`${API}/api/block`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            document.getElementById('block-form').reset();
+            loadBlocked();
+            checkHealth();
+        }
+
+        async function loadBlocked() {
+            try {
+                const res = await fetch(`${API}/api/blocked`);
+                const data = await res.json();
+                const list = document.getElementById('blocked-list');
+                const blocked = data.blocked;
+                let items = [];
+
+                for (const type of ['email', 'cpf', 'ip']) {
+                    if (!blocked[type]) continue;
+                    for (const [val, info] of Object.entries(blocked[type])) {
+                        items.push({ type, value: val, reason: info.reason || '', blocked_at: info.blocked_at || '' });
+                    }
+                }
+
+                if (items.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-lock-open" style="font-size:2rem;"></i><p>Nenhuma entidade bloqueada</p></div>';
+                    return;
+                }
+
+                list.innerHTML = items.map(i => `
+                    <div class="blocked-item">
+                        <div class="info">
+                            <div><span class="type-tag">${i.type.toUpperCase()}</span> <strong>${i.value}</strong></div>
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">${i.reason || 'Sem motivo'}</div>
+                        </div>
+                        <button class="btn btn-sm btn-danger" onclick="unblockEntity('${i.type}', '${i.value}')"><i class="fa-solid fa-unlock"></i></button>
+                    </div>
+                `).join('');
+            } catch (err) { console.error(err); }
+        }
+
+        async function unblockEntity(type, value) {
+            if (!confirm(`Desbloquear ${type}: ${value}?`)) return;
+            await fetch(`${API}/api/block/${type}/${encodeURIComponent(value)}`, { method: 'DELETE' });
+            loadBlocked();
+            checkHealth();
+        }
+
+        // ── Simulator card fields toggle ─────────────────────────────────
+        function toggleAdminCardFields() {
+            const method = document.getElementById('payment_method').value;
+            const isCard = method === 'credit_card';
+            document.getElementById('admin-card-name').style.display = isCard ? '' : 'none';
+            document.getElementById('admin-card-digits').style.display = isCard ? '' : 'none';
+        }
+
+        // ── Combo blocks ──────────────────────────────────────────────────
+        async function blockCombo(e) {
+            e.preventDefault();
+            const conditions = {};
+            const email = document.getElementById('combo_email').value.trim();
+            const cpf = document.getElementById('combo_cpf').value.replace(/\D/g, '');
+            const ip = document.getElementById('combo_ip').value.trim();
+            const card = document.getElementById('combo_card_last4').value.trim();
+            if (email) conditions.email = email;
+            if (cpf) conditions.cpf = cpf;
+            if (ip) conditions.ip = ip;
+            if (card) conditions.card_last4 = card;
+            if (Object.keys(conditions).length < 2) {
+                alert('Preencha ao menos 2 campos para criar bloqueio combinado');
+                return;
+            }
+            const res = await fetch(`${API}/api/combos`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conditions, reason: document.getElementById('combo_reason').value }),
+            });
+            const data = await res.json();
+            if (data.error) { alert(data.message); return; }
+            document.getElementById('combo-form').reset();
+            loadCombos();
+        }
+
+        async function loadCombos() {
+            try {
+                const res = await fetch(`${API}/api/combos`);
+                const data = await res.json();
+                const list = document.getElementById('combos-list');
+                const combos = data.combos || [];
+                if (combos.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-layer-group" style="font-size:2rem;"></i><p>Nenhum bloqueio combinado</p></div>';
+                    return;
+                }
+                list.innerHTML = combos.map(c => {
+                    const fields = Object.entries(c.conditions)
+                        .map(([k, v]) => `<span class="type-tag">${k}</span> ${v}`).join(' + ');
+                    return `
+                        <div class="blocked-item">
+                            <div class="info">
+                                <div style="margin-bottom:4px;">${fields}</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted);">${c.reason || 'Sem motivo'} &mdash; ID: <code>${c.id}</code></div>
+                            </div>
+                            <button class="btn btn-sm btn-danger" onclick="unblockCombo('${c.id}')"><i class="fa-solid fa-trash"></i></button>
+                        </div>`;
+                }).join('');
+            } catch (err) { console.error(err); }
+        }
+
+        async function unblockCombo(id) {
+            if (!confirm(`Remover bloqueio combinado ${id}?`)) return;
+            await fetch(`${API}/api/combos/${id}`, { method: 'DELETE' });
+            loadCombos();
+        }
+
+        // ── Countries ───────────────────────────────────────────────────────────
+        async function loadCountries() {
+            try {
+                const res = await fetch(`${API}/api/countries`);
+                const data = await res.json();
+                const list = document.getElementById('countries-list');
+                const countries = data.allowed_countries || [];
+                if (countries.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-earth-americas" style="font-size:2rem;"></i><p>Todos os países aceitos</p></div>';
+                    return;
+                }
+                list.innerHTML = '<div style="display:flex; flex-wrap:wrap; gap:8px; padding:4px 0;">' +
+                    countries.map(c => `
+                        <div style="display:inline-flex; align-items:center; gap:6px; padding:5px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; font-size:0.82rem;">
+                            <i class="fa-solid fa-globe" style="color:var(--accent); font-size:0.72rem;"></i>
+                            ${c}
+                            <button onclick="removeCountry('${c}')" style="border:none; background:none; cursor:pointer; padding:0; color:var(--red);"><i class="fa-solid fa-xmark"></i></button>
+                        </div>`).join('') + '</div>';
+            } catch (err) { console.error(err); }
+        }
+
+        async function addCountry() {
+            const val = document.getElementById('new_country').value.trim();
+            if (!val) return;
+            await fetch(`${API}/api/countries/${encodeURIComponent(val)}`, { method: 'POST' });
+            document.getElementById('new_country').value = '';
+            loadCountries();
+        }
+
+        async function removeCountry(country) {
+            if (!confirm(`Remover '${country}' da lista permitida?`)) return;
+            await fetch(`${API}/api/countries/${encodeURIComponent(country)}`, { method: 'DELETE' });
+            loadCountries();
+        }
+
+        async function clearAllCountries() {
+            if (!confirm('Liberar todos os países? (sem restrição de origem)')) return;
+            await fetch(`${API}/api/countries`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ countries: [] }),
+            });
+            loadCountries();
+        }
+
+        // ── Banks ───────────────────────────────────────────────────────
+        async function flagBank(e) {
+            e.preventDefault();
+            const payload = {
+                bank_name: document.getElementById('flag_bank_name').value,
+                risk_level: document.getElementById('flag_risk_level').value,
+                reason: document.getElementById('flag_reason').value,
+            };
+            await fetch(`${API}/api/banks/flag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            document.getElementById('bank-form').reset();
+            loadFlaggedBanks();
+        }
+
+        async function loadFlaggedBanks() {
+            try {
+                const res = await fetch(`${API}/api/banks/flagged`);
+                const data = await res.json();
+                const list = document.getElementById('bank-list');
+                const banks = data.flagged_banks;
+                const keys = Object.keys(banks);
+
+                if (keys.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-building-columns" style="font-size:2rem;"></i><p>Nenhum banco marcado</p></div>';
+                    return;
+                }
+
+                list.innerHTML = keys.map(k => `
+                    <div class="bank-item">
+                        <div class="info">
+                            <div class="name">${k} <span class="risk-tag risk-${banks[k].risk_level}">${banks[k].risk_level}</span></div>
+                            <div class="reason">${banks[k].reason || 'Sem motivo'}</div>
+                        </div>
+                        <button class="btn btn-sm btn-danger" onclick="unflagBank('${k}')"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                `).join('');
+            } catch (err) { console.error(err); }
+        }
+
+        async function unflagBank(name) {
+            await fetch(`${API}/api/banks/flag/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            loadFlaggedBanks();
+        }
+
+        // ── History ─────────────────────────────────────────────────────
+        async function loadHistory() {
+            try {
+                const res = await fetch(`${API}/api/transactions/history?limit=100`);
+                const data = await res.json();
+                const list = document.getElementById('history-list');
+                const items = data.history || [];
+
+                if (items.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-receipt" style="font-size:2rem;"></i><p>Nenhuma transação registrada</p></div>';
+                    return;
+                }
+
+                list.innerHTML = items.map(h => {
+                    const color = h.risk_score >= 70 ? 'var(--red)' : h.risk_score >= 40 ? 'var(--yellow)' : 'var(--green)';
+                    const icon = h.decision.includes('APROVADO') ? 'fa-circle-check' : h.decision === 'BLOQUEADO' ? 'fa-ban' : h.decision === 'REJEITADO' ? 'fa-xmark' : 'fa-triangle-exclamation';
+                    const methodIcon = h.payment_method === 'pix' ? 'fa-brands fa-pix' : h.payment_method === 'boleto' ? 'fa-solid fa-barcode' : 'fa-solid fa-credit-card';
+                    const ts = new Date(h.timestamp).toLocaleString('pt-BR');
+                    return `
+                        <div class="history-item" style="border-left-color: ${color}">
+                            <div class="info">
+                                <div class="name">${h.transaction_id} — R$ ${h.amount.toFixed(2)} <i class="${methodIcon}" style="color:var(--text-dim);margin-left:4px;"></i></div>
+                                <div class="meta">
+                                    ${h.customer_name} | ${h.decision} | Score: ${h.risk_score} | ${h.alert_count} alertas | ${ts}
+                                </div>
+                            </div>
+                            <i class="fa-solid ${icon}" style="font-size:1.2rem; color:${color}"></i>
+                        </div>`;
+                }).join('');
+            } catch (err) { console.error(err); }
+        }
+
+        // ── Presets ─────────────────────────────────────────────────────
+        const PRESETS = {
+            legit: {
+                payment_method: 'credit_card', amount: 150, card_holder_name: 'Maria Oliveira',
+                customer_name: 'Maria Oliveira', email: 'maria.oliveira@gmail.com',
+                cpf: '529.982.247-25', card_last4: '5678', card_expiry: '12/28',
+                bank_name: 'Nubank', city: 'São Paulo', state: 'SP', purchase_hour: 14,
+            },
+            suspicious: {
+                payment_method: 'credit_card', amount: 2500, card_holder_name: 'Carlos Santos',
+                customer_name: 'Pedro Lima', email: 'xxt3ch@proton.me',
+                cpf: '123.456.789-09', card_last4: '9999', card_expiry: '06/25',
+                bank_name: 'Inter', city: 'Rio de Janeiro', state: 'RJ', purchase_hour: 22,
+            },
+            fraud: {
+                payment_method: 'credit_card', amount: 8900, card_holder_name: 'Ana Beatriz Costa',
+                customer_name: 'Igor Petrov', email: 'darknet2024@temp.mail',
+                cpf: '111.111.111-11', card_last4: '0001', card_expiry: '01/23',
+                bank_name: 'BankX Fraud', city: 'Recife', state: 'PE', purchase_hour: 3,
+            },
+            pix: {
+                payment_method: 'pix', amount: 750, customer_name: 'João Silva',
+                email: 'joao.silva@email.com', cpf: '529.982.247-25',
+                bank_name: 'Bradesco', city: 'Belo Horizonte', state: 'MG', purchase_hour: 10,
+            },
+            boleto: {
+                payment_method: 'boleto', amount: 1200, customer_name: 'Ana Costa',
+                email: 'ana.costa@empresa.com.br', cpf: '529.982.247-25',
+                bank_name: 'Itaú', city: 'Curitiba', state: 'PR', purchase_hour: 15,
+            },
+        };
+
+        function loadPreset(name) {
+            const p = PRESETS[name];
+            if (!p) return;
+            Object.keys(p).forEach(k => {
+                const el = document.getElementById(k);
+                if (el) el.value = p[k];
+            });
+            toggleAdminCardFields();
+        }
+
+        // ── Init ────────────────────────────────────────────────────────
+        checkHealth();
+        loadPending();
+        setInterval(checkHealth, 15000);
+        setInterval(loadPending, 30000);
+    </script>
+</body>
+</html>
